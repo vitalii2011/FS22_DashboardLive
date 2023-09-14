@@ -13,7 +13,7 @@ if DashboardLive.MOD_NAME == nil then
 end
 
 source(DashboardLive.MOD_PATH.."tools/gmsDebug.lua")
-GMSDebug:init(DashboardLive.MOD_NAME, true, 2)
+GMSDebug:init(DashboardLive.MOD_NAME, true, 1)
 GMSDebug:enableConsoleCommands("dblDebug")
 
 source(DashboardLive.MOD_PATH.."utils/DashboardUtils.lua")
@@ -67,7 +67,7 @@ function DashboardLive.initSpecialization()
 	schema:register(XMLValueType.STRING, DashboardLive.DBL_XML_KEY .. "#joints")
 	schema:register(XMLValueType.VECTOR_N, DashboardLive.DBL_XML_KEY .. "#selection")
 	schema:register(XMLValueType.VECTOR_N, DashboardLive.DBL_XML_KEY .. "#selectionGroup")
-	schema:register(XMLValueType.INT, DashboardLive.DBL_XML_KEY .. "#state", "state")
+	schema:register(XMLValueType.STRING, DashboardLive.DBL_XML_KEY .. "#state", "state")
 	schema:register(XMLValueType.STRING, DashboardLive.DBL_XML_KEY .. "#stateText", "stateText")
 	schema:register(XMLValueType.INT, DashboardLive.DBL_XML_KEY .. "#trailer", "trailer number")
 	schema:register(XMLValueType.INT, DashboardLive.DBL_XML_KEY .. "#partition", "trailer partition")
@@ -78,6 +78,9 @@ function DashboardLive.initSpecialization()
 	schema:register(XMLValueType.FLOAT, DashboardLive.DBL_XML_KEY .. "#factor", "Factor")
 	schema:register(XMLValueType.INT, DashboardLive.DBL_XML_KEY .. "#min", "Minimum")
 	schema:register(XMLValueType.INT, DashboardLive.DBL_XML_KEY .. "#max", "Maximum")
+	schema:register(XMLValueType.STRING, DashboardLive.DBL_XML_KEY .. "#baseColorDarkMode", "Base color for dark mode")
+	schema:register(XMLValueType.STRING, DashboardLive.DBL_XML_KEY .. "#emitColorDarkMode", "Emit color for dark mode")
+	schema:register(XMLValueType.FLOAT, DashboardLive.DBL_XML_KEY .. "#intensityDarkMode", "Intensity for dark mode")
 	dbgprint("initSpecialization : DashboardLive element options registered", 2)
 	
 	DashboardLive.vanillaSchema = XMLSchema.new("vanillaIntegration")
@@ -87,7 +90,7 @@ function DashboardLive.initSpecialization()
 	
 	DashboardLive.vanillaSchema:register(XMLValueType.STRING, DashboardLive.DBL_Vanilla_XML_KEY .. "#cmd", "DashboardLive command")
 	DashboardLive.vanillaSchema:register(XMLValueType.STRING, DashboardLive.DBL_Vanilla_XML_KEY .. "#joints")
-	DashboardLive.vanillaSchema:register(XMLValueType.INT, DashboardLive.DBL_Vanilla_XML_KEY .. "#state", "state")
+	DashboardLive.vanillaSchema:register(XMLValueType.STRING, DashboardLive.DBL_Vanilla_XML_KEY .. "#state", "state")
 	DashboardLive.vanillaSchema:register(XMLValueType.STRING, DashboardLive.DBL_Vanilla_XML_KEY .. "#option", "Option")
 	DashboardLive.vanillaSchema:register(XMLValueType.FLOAT, DashboardLive.DBL_Vanilla_XML_KEY .. "#factor", "Factor")
 	DashboardLive.vanillaSchema:register(XMLValueType.INT, DashboardLive.DBL_Vanilla_XML_KEY .. "#min", "Minimum")
@@ -96,6 +99,9 @@ function DashboardLive.initSpecialization()
 	DashboardLive.vanillaSchema:register(XMLValueType.INT, DashboardLive.DBL_Vanilla_XML_KEY .. "#partition", "partition number")
 	DashboardLive.vanillaSchema:register(XMLValueType.STRING, DashboardLive.DBL_Vanilla_XML_KEY .. "#stateText", "stateText")
 	DashboardLive.vanillaSchema:register(XMLValueType.STRING, DashboardLive.DBL_Vanilla_XML_KEY .. "#scale", "scale")
+	DashboardLive.vanillaSchema:register(XMLValueType.STRING, DashboardLive.DBL_Vanilla_XML_KEY .. "#baseColorDarkMode", "Base color for dark mode")
+	DashboardLive.vanillaSchema:register(XMLValueType.STRING, DashboardLive.DBL_Vanilla_XML_KEY .. "#emitColorDarkMode", "Emit color for dark mode")
+	DashboardLive.vanillaSchema:register(XMLValueType.FLOAT, DashboardLive.DBL_Vanilla_XML_KEY .. "#intensityDarkMode", "Intensity for dark mode")
 	dbgprint("initSpecialization : vanillaSchema element options registered", 2)
 end
 
@@ -116,6 +122,9 @@ end
 function DashboardLive.registerOverwrittenFunctions(vehicleType)
 	SpecializationUtil.registerOverwrittenFunction(vehicleType, "loadDashboardGroupFromXML", DashboardLive.loadDashboardGroupFromXML)
     SpecializationUtil.registerOverwrittenFunction(vehicleType, "getIsDashboardGroupActive", DashboardLive.getIsDashboardGroupActive)
+    SpecializationUtil.registerOverwrittenFunction(vehicleType, "loadEmitterDashboardFromXML", DashboardLive.addDarkModeToLoadEmitterDashboardFromXML)
+    SpecializationUtil.registerOverwrittenFunction(vehicleType, "loadTextDashboardFromXML", DashboardLive.addDarkModeToLoadTextDashboardFromXML)
+    SpecializationUtil.registerOverwrittenFunction(vehicleType, "loadNumberDashboardFromXML", DashboardLive.addDarkModeToLoadNumberDashboardFromXML)
 end
 
 function DashboardLive:onPreLoad(savegame)
@@ -171,6 +180,12 @@ function DashboardLive:onLoad(savegame)
 	
 	-- selector data
 	spec.selectorActive = 0
+	
+	-- dark mode
+	spec.darkModeExists = false
+	spec.darkMode = false
+	spec.darkModeLast = false
+	spec.isDirty = false
 	
 	-- engine data
 	spec.motorTemperature = 20
@@ -433,6 +448,38 @@ function DashboardLive:onLoad(savegame)
         	dbgprint("onLoad : ModIntegration <frontLoader>", 2)
         	self:loadDashboardsFromXML(DashboardLive.modIntegrationXMLFile, string.format("vanillaDashboards.vanillaDashboard(%d).dashboardLive", spec.modIntegration), dashboardData)
         end
+		-- precision Farming
+		dashboardData = {
+			valueTypeToLoad = "precfarming",
+			valueObject = self,
+			valueFunc = DashboardLive.getDashboardLivePrecisionFarming,
+			additionalAttributesFunc = DashboardLive.getDBLAttributesPrecisionFarming
+		}
+		self:loadDashboardsFromXML(self.xmlFile, "vehicle.dashboard.dashboardLive", dashboardData) 
+		if spec.vanillaIntegration then
+			dbgprint("onLoad : VanillaIntegration <precisionfarming>", 2)
+			self:loadDashboardsFromXML(DashboardLive.vanillaIntegrationXMLFile, string.format("vanillaDashboards.vanillaDashboard(%d).dashboardLive", spec.vanillaIntegration), dashboardData)
+		end
+		if spec.modIntegration then
+			dbgprint("onLoad : ModIntegration <precisionfarming>", 2)
+			self:loadDashboardsFromXML(DashboardLive.modIntegrationXMLFile, string.format("vanillaDashboards.vanillaDashboard(%d).dashboardLive", spec.modIntegration), dashboardData)
+		end
+		-- CVTaddon
+		dashboardData = {
+			valueTypeToLoad = "cvt",
+			valueObject = self,
+			valueFunc = DashboardLive.getDashboardLiveCVT,
+			additionalAttributesFunc = DashboardLive.getDBLAttributesCVT
+		}
+		self:loadDashboardsFromXML(self.xmlFile, "vehicle.dashboard.dashboardLive", dashboardData) 
+		if spec.vanillaIntegration then
+			dbgprint("onLoad : VanillaIntegration <CVTaddon>", 2)
+			self:loadDashboardsFromXML(DashboardLive.vanillaIntegrationXMLFile, string.format("vanillaDashboards.vanillaDashboard(%d).dashboardLive", spec.vanillaIntegration), dashboardData)
+		end
+		if spec.modIntegration then
+			dbgprint("onLoad : ModIntegration <CVTaddon>", 2)
+			self:loadDashboardsFromXML(DashboardLive.modIntegrationXMLFile, string.format("vanillaDashboards.vanillaDashboard(%d).dashboardLive", spec.modIntegration), dashboardData)
+		end
         -- print
         dashboardData = {	
         					valueTypeToLoad = "print",
@@ -551,7 +598,7 @@ function DashboardLive:onRegisterActionEvents(isActiveForInput)
 		DashboardLive.actionEvents = {} 
 		if self:getIsActiveForInput(true) and spec ~= nil then 
 			local actionEventId
-			local sk = spec.maxPage > 1
+			local sp = spec.maxPage > 1
 			local sg = spec.maxPageGroup > 1
 			if sg then
 				_, actionEventId = self:addActionEvent(DashboardLive.actionEvents, 'DBL_PAGEGRPUP', self, DashboardLive.CHANGEPAGE, false, true, false, true, nil)
@@ -561,19 +608,23 @@ function DashboardLive:onRegisterActionEvents(isActiveForInput)
 				g_inputBinding:setActionEventTextPriority(actionEventId, GS_PRIO_NORMAL)
 				g_inputBinding:setActionEventTextVisibility(actionEventId, sg)
 			end
-			if sk then
+			if sp then
 				_, actionEventId = self:addActionEvent(DashboardLive.actionEvents, 'DBL_PAGEUP', self, DashboardLive.CHANGEPAGE, false, true, false, true, nil)
 				g_inputBinding:setActionEventTextPriority(actionEventId, GS_PRIO_NORMAL)
-				g_inputBinding:setActionEventTextVisibility(actionEventId, sk)
+				g_inputBinding:setActionEventTextVisibility(actionEventId, sp)
 				_, actionEventId = self:addActionEvent(DashboardLive.actionEvents, 'DBL_PAGEDN', self, DashboardLive.CHANGEPAGE, false, true, false, true, nil)
 				g_inputBinding:setActionEventTextPriority(actionEventId, GS_PRIO_NORMAL)
-				g_inputBinding:setActionEventTextVisibility(actionEventId, sk)
+				g_inputBinding:setActionEventTextVisibility(actionEventId, sp)
 			end
 		end	
 		_, zoomActionEventId = self:addActionEvent(DashboardLive.actionEvents, 'DBL_ZOOM', self, DashboardLive.ZOOM, false, true, true, true, nil)	
 		_, zoomActionEventId = self:addActionEvent(DashboardLive.actionEvents, 'DBL_ZOOM_PERM', self, DashboardLive.ZOOM, false, true, false, true, nil)
 		
-		_, mapOrientationActionEventId = self:addActionEvent(DashboardLive.actionEvents, 'DBL_MAPORIENTATION', self, DashboardLive.MAPORIENTATION, false, true, false, true, nil)		
+		_, mapOrientationActionEventId = self:addActionEvent(DashboardLive.actionEvents, 'DBL_MAPORIENTATION', self, DashboardLive.MAPORIENTATION, false, true, false, true, nil)	
+		
+		if spec.darkModeExists then
+			_, darkModeActionEventId = self:addActionEvent(DashboardLive.actionEvents, 'DBL_DARKMODE', self, DashboardLive.DARKMODE, false, true, false, true, nil)		
+		end
 		
 		if g_server ~= nil then 
 			if DashboardLive.editMode and DashboardLive.editSymbol ~= nil and self:getIsActiveForInput(true) and spec ~= nil then 
@@ -668,6 +719,18 @@ function DashboardLive:ZOOM(actionName, keyStatus, arg3, arg4, arg5)
 		spec.zoomPerm = not spec.zoomPerm
 	end
 	spec.zoomPressed = true
+end
+
+function DashboardLive:DARKMODE(actionName, keyStatus, arg3, arg4, arg5)
+	dbgprint("DARKMODE", 4)
+	local spec = self.spec_DashboardLive
+	if spec.darkMode == spec.darkModeLast then
+		spec.darkMode = not spec.darkMode
+	else
+		dbgprint("Toggle Dark Mode: Skipped because last status was not synchronized completely", 1)
+	end
+	spec.isDirty = true
+	dbgprint("DARKMODE: set to "..tostring(spec.darkMode), 2)
 end
 
 -- Dashboard Editor Mode
@@ -859,32 +922,16 @@ end
 
 local function findSpecialization(device, specName, iteration, iterationStep)
 	iterationStep = iterationStep or 0 -- initialization
+	
 	if (iteration == nil or iteration == iterationStep) and device ~= nil and device[specName] ~= nil then
-		return device[specName]
+		return device[specName], device
+		
 	elseif (iteration == nil or iterationStep < iteration) and device.getAttachedImplements ~= nil then
 		local implements = device:getAttachedImplements()
 		for _,implement in pairs(implements) do
-			local device = implement.object
-			local spec = findSpecialization(device, specName, iteration, iterationStep + 1)
+			local spec, device = findSpecialization(implement.object, specName, iteration, iterationStep + 1)
 			if spec ~= nil then 
-				return spec 
-			end
-		end
-	else 
-		return nil
-	end
-end
-
-local function findSpecializationImplement(device, specName, iteration, iterationStep)
-	iterationStep = iterationStep or 0 -- initialization
-	if (iteration == nil or iteration == iterationStep) and device ~= nil and device[specName] ~= nil then
-		return device
-	elseif (iteration == nil or iterationStep < iteration) and device.getAttachedImplements ~= nil then
-		local implements = device:getAttachedImplements()
-		for _,implement in pairs(implements) do
-			local device = findSpecializationImplement(implement.object, specName, iteration, iterationStep + 1)
-			if device ~= nil then 
-				return device 
+				return spec, device
 			end
 		end
 	else 
@@ -1011,7 +1058,8 @@ end
 
 local function recursiveTrailerSearch(vehicle, trailer, step)
 	dbgprint("recursiveTrailerSearch", 4)
-	return findSpecializationImplement(vehicle, "spec_fillUnit", trailer)
+	local _, specVehicle = findSpecialization(vehicle, "spec_fillUnit", trailer)
+	return specVehicle
 end
 
 -- returns fillLevel {pct, abs, max, absKg}
@@ -1029,11 +1077,11 @@ local function getFillLevelTable(vehicle, ftIndex, ftPartition, ftType)
 		return fillLevelTable
 	end
 	
-	local device = findSpecializationImplement(vehicle, "spec_fillUnit", ftIndex)
+	local _, device = findSpecialization(vehicle, "spec_fillUnit", ftIndex)
 	if device ~= nil then
 		fillLevelTable = getChoosenFillLevelState(device, ftPartition, ftType)
 	else
-		device = findSpecializationImplement(vehicle, "spec_dynamicMountAttacher", ftIndex)
+		_, device = findSpecialization(vehicle, "spec_dynamicMountAttacher", ftIndex)
 		if device ~= nil then 
 			fillLevelTable = getChoosenAttacherState(device, ftType)
 		end
@@ -1080,19 +1128,25 @@ local function getIsFoldable(device)
 	return spec ~= nil and spec.foldingParts ~= nil and #spec.foldingParts > 0
 end
 
---[[
-local function isFoldable(implement, search, getFoldableImplement, t)
-	local foldable, returnImplement = recursiveCheck(implement, getIsFoldable, t == nil, getFoldableImplement, t)
-	if getFoldableImplement then
-		return foldable, returnImplement
-	else
-		return foldable
-	end
+-- from ExtendedSprayerHUDExtension - can be accessed directly?
+local function getFillTypeSourceVehicle(sprayer)
+    -- check the valid sprayer if he has a fill type source to consume from, otherwise hide the display
+    if sprayer:getFillUnitFillLevel(sprayer:getSprayerFillUnitIndex()) <= 0 then
+        local spec = sprayer.spec_sprayer
+        for _, supportedSprayType in ipairs(spec.supportedSprayTypes) do
+            for _, src in ipairs(spec.fillTypeSources[supportedSprayType]) do
+                local vehicle = src.vehicle
+                if vehicle:getFillUnitFillType(src.fillUnitIndex) == supportedSprayType and vehicle:getFillUnitFillLevel(src.fillUnitIndex) > 0 then
+                    return vehicle, src.fillUnitIndex
+                end
+            end
+        end
+    end
+
+    return sprayer, sprayer:getSprayerFillUnitIndex()
 end
---]]
 
 local function getAttachedStatus(vehicle, element, mode, default)
-	
 	if element.dblAttacherJointIndices == nil then
 		if element.attacherJointIndices ~= nil then
 			element.dblAttacherJointIndices = element.attacherJointIndices
@@ -1154,7 +1208,7 @@ local function getAttachedStatus(vehicle, element, mode, default)
 				
 			elseif mode == "hastypedesc" then
 				resultValue = false
-				local vehicle = findSpecializationImplement(implement.object, "spec_attachable", t)
+				local _, vehicle = findSpecialization(implement.object, "spec_attachable", t)
 				local options = element.dblOption
 				if vehicle ~= nil and options ~= nil then
 					local option = string.split(options, " ")
@@ -1264,7 +1318,7 @@ local function getAttachedStatus(vehicle, element, mode, default)
             	resultValue = specTR ~= nil and specTR:getTipState() > 0
             	
             elseif mode == "tippingstate" then
-            	local specImplement = findSpecializationImplement(implement.object, "spec_trailer", t)
+            	local _, specImplement = findSpecialization(implement.object, "spec_trailer", t)
 
             	if specImplement ~= nil and specImplement.spec_trailer:getTipState() > 0 then
             		local specTR = specImplement.spec_trailer
@@ -1510,10 +1564,149 @@ function DashboardLive:catchBooleanForDashboardStateFunc(superfunc, dashboard, n
 	if type(newValue)=="boolean" then
 		newValue = newValue and 1 or 0
 	end
-	return superfunc(self, dashboard, newValue, minValue, maxValue, isActive)
+	return superfunc(self, dashboard, tonumber(newValue) or 0, minValue, maxValue, isActive)
 end
 Dashboard.defaultAnimationDashboardStateFunc = Utils.overwrittenFunction(Dashboard.defaultAnimationDashboardStateFunc, DashboardLive.catchBooleanForDashboardStateFunc)
 Dashboard.defaultSliderDashboardStateFunc = Utils.overwrittenFunction(Dashboard.defaultSliderDashboardStateFunc, DashboardLive.catchBooleanForDashboardStateFunc)
+
+-- Append schema definitions to registerDashboardXMLPath function 
+function DashboardLive.addDarkModeToRegisterDashboardXMLPaths(schema, basePath, availableValueTypes)
+	dbgprint("addDarkModeToLoadEmitterDashboardFromXML : registerDashboardXMLPaths appended to "..basePath, 2)
+	schema:register(XMLValueType.STRING, basePath .. ".dashboard(?)#baseColorDarkMode", "Base color for dark mode")
+	schema:register(XMLValueType.STRING, basePath .. ".dashboard(?)#emitColorDarkMode", "Emit color for dark mode")
+	schema:register(XMLValueType.FLOAT, basePath .. ".dashboard(?)#intensityDarkMode", "Intensity for dark mode")
+	schema:register(XMLValueType.STRING, basePath .. ".dashboard(?)#textColorDarkMode", "Text color for dark mode")
+	schema:register(XMLValueType.STRING, basePath .. ".dashboard(?)#hiddenColorDarkMode", "Hidden color for dark mode")
+	schema:register(XMLValueType.STRING, basePath .. ".dashboard(?)#numberColorDarkMode", "Number color for dark mode")
+end
+Dashboard.registerDashboardXMLPaths = Utils.appendedFunction(Dashboard.registerDashboardXMLPaths, DashboardLive.addDarkModeToRegisterDashboardXMLPaths)
+
+-- Overwritten function loadEmitterDashboardFromXML to enable dark mode setting
+function DashboardLive:addDarkModeToLoadEmitterDashboardFromXML(superfunc, xmlFile, key, dashboard)
+	local returnValue = superfunc(self, xmlFile, key, dashboard)
+	local spec = self.spec_DashboardLive
+	
+	-- Back up light mode values
+	dashboard.baseColorLM = dashboard.baseColor
+	dashboard.emitColorLM = dashboard.emitColor
+	dashboard.intensityLM = dashboard.intensity
+	-- Read dark mode values
+	dashboard.baseColorDM = self:getDashboardColor(xmlFile, xmlFile:getValue(key .. "#baseColorDarkMode"))
+	dashboard.emitColorDM = self:getDashboardColor(xmlFile, xmlFile:getValue(key .. "#emitColorDarkMode"))
+	dashboard.intensityDM = xmlFile:getValue(key .. "#intensityDarkMode")
+	
+	if dashboard.baseColorDM ~= nil or dashboard.emitColorDM ~= nil or dashboard.intensityDM ~= nil then
+		dbgprint("loadEmitterDashboardFromXML : Setting dark mode for "..self:getName(), 2)
+		spec.darkModeExists = "true"
+	end
+	
+	return returnValue
+end
+
+-- Overwritten function loadTextDashboardFromXML to enable dark mode setting
+function DashboardLive:addDarkModeToLoadTextDashboardFromXML(superfunc, xmlFile, key, dashboard)
+	local returnValue = superfunc(self, xmlFile, key, dashboard)
+	local spec = self.spec_DashboardLive
+	
+	-- Back up light mode values
+	dashboard.textColorLM = dashboard.textColor
+	dashboard.hiddenColorDM = dashboard.hiddenColor
+	-- Read dark mode values
+	dashboard.textColorDM = self:getDashboardColor(xmlFile, xmlFile:getValue(key .. "#textColorDarkMode"))
+	dashboard.hiddenColorDM = self:getDashboardColor(xmlFile, xmlFile:getValue(key .. "#hiddenColorDarkMode"))
+	
+	if dashboard.textColorDM ~= nil or dashboard.hiddenColorDM ~= nil then
+		dbgprint("loadTextDashboardFromXML : Setting dark mode for "..self:getName(), 2)
+		spec.darkModeExists = "true"
+	end
+	
+	return returnValue
+end
+
+-- Overwritten function loadNumberDashboardFromXML to enable dark mode setting
+function DashboardLive:addDarkModeToLoadNumberDashboardFromXML(superfunc, xmlFile, key, dashboard)
+	local returnValue = superfunc(self, xmlFile, key, dashboard)
+	local spec = self.spec_DashboardLive
+	
+	-- Back up light mode values
+	dashboard.numberColorLM = dashboard.numberColor
+	-- Read dark mode values
+	dashboard.numberColorDM = self:getDashboardColor(xmlFile, xmlFile:getValue(key .. "#numberColorDarkMode"))
+	
+	if dashboard.numberColorDM ~= nil then
+		dbgprint("loadNumberDashboardFromXML : Setting dark mode for "..self:getName(), 2)
+		spec.darkModeExists = "true"
+	end
+	
+	return returnValue
+end
+
+-- Prepended function defaultEmitterDashboardStateFunc to enable dark mode
+function DashboardLive:addDarkModeToDefaultEmitterDashboardStateFunc(dashboard, newValue, minValue, maxValue, isActive)
+	local spec = self.spec_DashboardLive
+	if spec ~= nil and spec.darkMode ~= spec.darkModeLast then
+		if spec.darkMode then
+			dbgprint("switching to dark mode: "..tostring(self:getName()), 2)
+			dashboard.baseColor = dashboard.baseColorDM
+			dashboard.emitColor = dashboard.emitColorDM
+			dashboard.intensity = dashboard.intensityDM
+		else	
+			dbgprint("switching to light mode: "..tostring(self:getName()), 2)
+			dashboard.baseColor = dashboard.baseColorLM
+			dashboard.emitColor = dashboard.emitColorLM
+			dashboard.intensity = dashboard.intensityLM
+		end
+		if dashboard.baseColor ~= nil then 
+			setShaderParameter(dashboard.node, "baseColor", dashboard.baseColor[1], dashboard.baseColor[2], dashboard.baseColor[3], 1, false)
+		end
+		if dashboard.emitColor ~= nil then
+			setShaderParameter(dashboard.node, "emitColor", dashboard.emitColor[1], dashboard.emitColor[2], dashboard.emitColor[3], 1, false)
+		end
+	end
+end
+Dashboard.defaultEmitterDashboardStateFunc = Utils.prependedFunction(Dashboard.defaultEmitterDashboardStateFunc, DashboardLive.addDarkModeToDefaultEmitterDashboardStateFunc)
+
+-- Prepended function defaultTextDashboardStateFunc to enable dark mode
+function DashboardLive:addDarkModeToDefaultTextDashboardStateFunc(dashboard, newValue, minValue, maxValue, isActive)
+	local spec = self.spec_DashboardLive
+	if spec ~= nil and spec.darkMode ~= spec.darkModeLast then
+		if spec.darkMode then
+			dbgprint("switching to dark mode: "..tostring(self:getName()), 2)
+			dashboard.textColor = dashboard.textColorDM
+			dashboard.hiddenColor = dashboard.hiddenColorDM
+		else	
+			dbgprint("switching to light mode: "..tostring(self:getName()), 2)
+			dashboard.textColor = dashboard.textColorLM
+			dashboard.hiddenColor = dashboard.hiddenColorLM
+		end
+		if dashboard.textColor ~= nil then
+			for _, char in pairs(dashboard.characterLine.characters) do
+				dashboard.fontMaterial:setFontCharacterColor(char, dashboard.textColor[1], dashboard.textColor[2], dashboard.textColor[3], 1, dashboard.characterLine.textEmissiveScale)
+			end
+		end
+	end
+end
+Dashboard.defaultTextDashboardStateFunc = Utils.prependedFunction(Dashboard.defaultTextDashboardStateFunc, DashboardLive.addDarkModeToDefaultTextDashboardStateFunc)
+
+-- Prepended function defaultNumberDashboardStateFunc to enable dark mode
+function DashboardLive:addDarkModeToDefaultNumberDashboardStateFunc(dashboard, newValue, minValue, maxValue, isActive)
+	local spec = self.spec_DashboardLive
+	if spec ~= nil and spec.darkMode ~= spec.darkModeLast then
+		if spec.darkMode then
+			dbgprint("defaultNumberDashboardStateFunc : switching to dark mode: "..tostring(self:getName()), 2)
+			dashboard.numberColor = dashboard.numberColorDM
+		else	
+			dbgprint("defaultNumberDashboardStateFunc : switching to light mode: "..tostring(self:getName()), 2)
+			dashboard.numberColor = dashboard.numberColorLM
+		end
+		if dashboard.numberColor ~= nil then
+			for _, numberNode in pairs(dashboard.numberNodes) do
+				dashboard.fontMaterial:setFontCharacterColor(numberNode, dashboard.numberColor[1], dashboard.numberColor[2], dashboard.numberColor[3], 1, dashboard.emissiveScale)
+            end
+        end
+	end
+end
+Dashboard.defaultNumberDashboardStateFunc = Utils.prependedFunction(Dashboard.defaultNumberDashboardStateFunc, DashboardLive.addDarkModeToDefaultNumberDashboardStateFunc)
 
 -- GROUPS
 
@@ -1522,7 +1715,7 @@ function DashboardLive:loadDashboardGroupFromXML(superFunc, xmlFile, key, group)
         dbgprint("loadDashboardGroupFromXML : superfunc failed for group "..tostring(group.name), 2)
         return false
     end
-    dbgprint("loadDashboardGroupFromXML : group: "..tostring(group.name), 2)
+    dbgprint("loadDashboardGroupFromXML : "..self:getName()..": group: "..tostring(group.name), 2)
     
     group.dblCommand = lower(xmlFile:getValue(key .. "#dbl"))
     dbgprint("loadDashboardGroupFromXML : dblCommand: "..tostring(group.dblCommand), 2)
@@ -1531,6 +1724,11 @@ function DashboardLive:loadDashboardGroupFromXML(superFunc, xmlFile, key, group)
 		group.dblPage = xmlFile:getValue(key .. "#page") or 0
 		group.dblPageGroup = xmlFile:getValue(key .. "#group") or 1
 		dbgprint("loadDashboardGroupFromXML : page: "..tostring(group.dblPage), 2)
+	end
+	
+	if group.dblCommand == "darkmode" then
+		local spec = self.spec_DashboardLive
+		if spec ~= nil then spec.darkModeExists = "true" end
 	end
 	
 	group.dblOperator = lower(xmlFile:getValue(key .. "#op", "and"))
@@ -1579,6 +1777,12 @@ function DashboardLive:getIsDashboardGroupActive(superFunc, group)
 		else
 			returnValue = group.dblPageGroup == spec.actPageGroup
 		end
+		
+	elseif group.dblCommand == "darkmode" then
+		returnValue = spec.darkMode
+		
+	elseif group.dblCommand == "lightmode" then
+		returnValue = not spec.darkMode
 	
 	-- vanilla game selector
 	elseif group.dblCommand == "base_selector" and group.dblSelection ~= nil then
@@ -2031,6 +2235,42 @@ function DashboardLive.getDBLAttributesFrontloader(self, xmlFile, key, dashboard
 	return true
 end
 
+-- precisionFarming
+function DashboardLive.getDBLAttributesPrecisionFarming(self, xmlFile, key, dashboard)
+	dashboard.dblCommand = lower(xmlFile:getValue(key .. "#cmd", "")) -- rotation,  minmax
+    dbgprint("getDBLAttributesFrontloader : command: "..tostring(dashboard.dblCommand), 2)
+    
+	dashboard.dblAttacherJointIndices = xmlFile:getValue(key .. "#joints")
+	dbgprint("getDBLAttributesFrontloader : joints: "..tostring(dashboard.dblAttacherJointIndices), 2)
+
+	dashboard.dblOption = lower(xmlFile:getValue(key .. "#option"))
+	
+	dashboard.dblTrailer = xmlFile:getValue(key .. "#trailer") -- number of tool
+
+	dashboard.dblFactor = xmlFile:getValue(key .. "#factor", "1") -- factor
+
+	--dashboard.dblStateText = xmlFile:getValue(key .. "#stateText","origin")
+
+	local min = xmlFile:getValue(key .. "#min")
+	local max = xmlFile:getValue(key .. "#max")
+	
+	if min ~= nil then dashboard.dblMin = min end
+    if max ~= nil then dashboard.dblMax = max end
+
+	return true
+end
+
+-- CVTaddon
+function DashboardLive.getDBLAttributesCVT(self, xmlFile, key, dashboard)
+	dashboard.dblCommand = lower(xmlFile:getValue(key .. "#cmd", ""))
+    dbgprint("getDBLAttributesCVT : command: "..tostring(dashboard.dblCommand), 2)
+    
+    dashboard.dblState = xmlFile:getValue(key .. "#state")
+	dbgprint("getDBLAttributesCVT : state: "..tostring(dashboard.dblState), 2)
+	
+	return true
+end
+
 -- get states
 function DashboardLive.getDashboardLivePage(self, dashboard)
 	dbgprint("getDashboardLivePage : dblPage: "..tostring(dashboard.dblPage)..", dblPageGroup: "..tostring(dashboard.dblPageGroup), 4)
@@ -2390,15 +2630,15 @@ function DashboardLive.getDashboardLiveCombine(self, dashboard)
 			return spec.workedHectars
 			
 		elseif c == "cutheight" then
-			local specCutter = findspecialization(self, "spec_cutter")
+			local specCutter = findSpecialization(self, "spec_cutter")
 			if specCutter ~= nil then
 				return specCutter.currentCutHeight
 			end
 		
 		elseif c == "pipestate" then
 			local specPipe = self.spec_pipe
-			if specPipe ~= nil and sn ~= nil then
-				return specPipe.currentState == sn
+			if specPipe ~= nil and sn ~= nil and tonumber(sn) ~= nil then
+				return specPipe.currentState == tonumber(sn)
 			end
 			
 		elseif c == "pipefolding" then
@@ -2418,8 +2658,8 @@ function DashboardLive.getDashboardLiveCombine(self, dashboard)
 		elseif c == "overloading" then
 			local spec_dis = self.spec_dischargeable
 			if spec_dis ~= nil then
-				if sn ~= nil then
-					return spec_dis:getDischargeState() == sn
+				if sn ~= nil and tonumber(sn) ~= nil then
+					return spec_dis:getDischargeState() == tonumber(sn)
 				else
 					return spec_dis:getDischargeState() > 0
 				end
@@ -2811,6 +3051,9 @@ function DashboardLive.getDashboardLiveCXP(self, dashboard)
 			returnValue = mr.engineLoad * mr.loadMultiplier * f
 		elseif c == "yield" then
 			returnValue = mr.yield
+			if returnValue ~= returnValue then
+				returnValue = 0
+			end
 		elseif c == "highmoisture" then
 			returnValue = mr.highMoisture
 		end
@@ -2842,9 +3085,199 @@ function DashboardLive.getDashboardLiveFrontloader(self, dashboard)
 	end
 	return returnValue
 end
+
+function DashboardLive.getDashboardLivePrecisionFarming(self, dashboard)
+	dbgprint("getDashboardLivePrecisionFarming : dblCommand: "..tostring(dashboard.dblCommand), 4)
+	
+	-- lets find any attached vehicle with a extendedSprayer specialization.
+	-- in the end, we can only deal with one of them (same as precision farming dlc content)	
+	local t = dashboard.dblTrailer
+	local specExtendedSprayer, pfVehicle = findSpecialization(self, "spec_extendedSprayer", t)
+
+	local returnValue = ""
+	
+	if specExtendedSprayer ~= nil then
+		dbgprint("found spec spec_extendedSprayer in "..tostring(pfVehicle:getName()), 4)
+
+		local sourceVehicle, fillUnitIndex = FS22_precisionFarming.ExtendedSprayer.getFillTypeSourceVehicle(pfVehicle)
+		local hasLimeLoaded, hasFertilizerLoaded = FS22_precisionFarming.ExtendedSprayer.getCurrentSprayerMode(pfVehicle)
+	
+		local c = dashboard.dblCommand
+		local o = dashboard.dblOption
+		
+		local returnValueFormat = "%.2f t/ha"
+		
+		-- soil type 
+		if c == "soiltype" then
+			if specExtendedSprayer.lastTouchedSoilType ~= 0 and specExtendedSprayer.soilMap ~= nil then
+				local soilType = specExtendedSprayer.soilMap:getSoilTypeByIndex(specExtendedSprayer.lastTouchedSoilType)
+				if soilType ~= nil then
+					return soilType.name
+				else 
+					return false
+				end
+			end
+		end	
+		
+		local sprayAmountAutoMode = specExtendedSprayer.sprayAmountAutoMode
+		-- sprayAmountAutoMode
+		if c == "sprayamountautomode" then
+			return sprayAmountAutoMode
+		end	
+		
+		local sprayFillType = sourceVehicle:getFillUnitFillType(fillUnitIndex)
+		local fillTypeDesc = g_fillTypeManager:getFillTypeByIndex(sprayFillType)
+		local massPerLiter = (fillTypeDesc.massPerLiter / FillTypeManager.MASS_SCALE)
+		local applicationRate = 0
+		
+		-- lime values
+		if hasLimeLoaded and (c == "phactual" or c == "phtarget" or c == "phchanged" or c == "applicationrate") then
+		
+			local pHMap = specExtendedSprayer.pHMap
+            local pHActualInt = specExtendedSprayer.phActualBuffer:get()
+            local pHTargetInt = specExtendedSprayer.phTargetBuffer:get()
+            
+            local pHActual = pHMap:getPhValueFromInternalValue(pHActualInt)
+            if c == "phactual" then
+            	returnValue = phActual
+            end
+            
+            local pHTarget = pHMap:getPhValueFromInternalValue(pHTargetInt)			
+			if c == "phtarget" then
+            	returnValue = pHTarget
+            end
+            
+			local pHChanged = 0
+			if sprayAmountAutoMode then
+                pHChanged = pHTarget - pHActual
+				applicationRate = specExtendedSprayer.lastLitersPerHectar * massPerLiter
+			else 
+				local requiredLitersPerHa = pHMap:getLimeUsageByStateChange(specExtendedSprayer.sprayAmountManual)
+            	pHChanged = pHMap:getPhValueFromChangedStates(specExtendedSprayer.sprayAmountManual)
+				applicationRate = requiredLitersPerHa * massPerLiter
+			end
+			if c == "applicationrate" then
+				returnValue = applicationRate
+			end
+			if c == "phchanged" then
+				returnValue = pHChanged
+			end
+			
+            dbgrender("pHActual: "..tostring(pHActual),13,3)
+            dbgrender("pHTarget: "..tostring(pHTarget),14,3)
+            dbgrender("pHChanged: "..tostring(pHChanged),15,3)
+            dbgrender("sprayAmountAutoMode: "..tostring(sprayAmountAutoMode),16,3)
+			dbgrender("applicationRate: "..tostring(applicationRate),17,3)
+		
+		-- fertilizer part
+		elseif hasFertilizerLoaded and (c == "nactual" or c == "ntarget" or c == "nchanged" or c == "applicationrate") then
+			
+			local nitrogenMap = specExtendedSprayer.nitrogenMap
+			local nActualInt = specExtendedSprayer.nActualBuffer:get()
+			local nTargetInt = specExtendedSprayer.nTargetBuffer:get()		
+			
+			local nActual = nitrogenMap:getNitrogenValueFromInternalValue(nActualInt)
+			if c == "nactual" then 
+				returnValue = nActual
+			end
+			
+			local nTarget = nitrogenMap:getNitrogenValueFromInternalValue(nTargetInt)
+			if c == "ntarget" then
+				returnValue = nTarget
+			end	
+			
+			local nitrogenChanged = 0
+			if sprayAmountAutoMode then
+                nitrogenChanged = nTarget - nActual
+			else 
+            	nitrogenChanged = nitrogenMap:getNitrogenFromChangedStates(specExtendedSprayer.sprayAmountManual)
+			end
+			if c == "nchanged" then
+				returnValue = nitrogenChanged
+			end
+			
+			local litersPerHectar
+			if sprayAmountAutoMode then
+				litersPerHectar = specExtendedSprayer.lastLitersPerHectar
+			else
+				litersPerHectar = nitrogenMap:getFertilizerUsageByStateChange(specExtendedSprayer.sprayAmountManual, sprayFillType)
+			end
+			
+			if specExtendedSprayer.isSolidFertilizerSprayer then
+				returnValueFormat = "%d kg/ha"
+				applicationRate = litersPerHectar * massPerLiter * 1000
+			elseif specExtendedSprayer.isLiquidFertilizerSprayer then
+				returnValueFormat = "%d l/ha"
+				applicationRate = litersPerHectar
+			elseif specExtendedSprayer.isSlurryTanker then
+				returnValueFormat = "%.1f m³/ha"
+				applicationRate = litersPerHectar / 1000
+			elseif specExtendedSprayer.isManureSpreader then
+				returnValueFormat = "%.1f t/ha"
+				applicationRate = litersPerHectar * massPerLiter
+			end
+			if c == "applicationrate" then
+				returnValue = applicationRate
+			end
+			
+            dbgrender("nActual: "..tostring(nActual),13,3)
+            dbgrender("nTarget: "..tostring(nTarget),14,3)
+            dbgrender("nChanged: "..tostring(nitrogenChanged),15,3)
+            dbgrender("sprayAmountAutoMode: "..tostring(sprayAmountAutoMode),16,3)
+            dbgrender("litersPerHectar: "..tostring(litersPerHectar),17,3)
+			dbgrender("applicationRate: "..tostring(applicationRate),18,3)
+        end
+		
+		if o == "text" and type(returnValue) == "number" then
+			dbgprint("returnValueFormat: "..tostring(returnValueFormat), 4)
+			dbgprint("returnValue: "..tostring(returnValue), 4)
+			returnValue = string.format(returnValueFormat, tostring(returnValue))
+		end
+	
+		if dashboard.textMask ~= nil then
+			local len = string.len(dashboard.textMask)
+			local alignment = dashboard.textAlignment or RenderText.ALIGN_RIGHT
+			dbgprint("trimmed returnValue: "..tostring(returnValue), 4)
+			returnValue = trim(returnValue, len, alignment)
+		end
+		dbgrender("returnValue: "..tostring(returnValue), 19, 3)
+	end
+	return returnValue
+end
+
+function DashboardLive.getDashboardLiveCVT(self, dashboard)
+	dbgprint("getDashboardLiveCVT : dblCommand: "..tostring(dashboard.dblCommand), 4)
+	dbgprint("getDashboardLiveCVT : dblState: "..tostring(dashboard.dblState), 4)
+	local c = dashboard.dblCommand
+	local s = dashboard.dblState
+	local returnValue = false
+	
+	local spec = self.spec_CVTaddon
+	if spec ~= nil and type(c)=="string" then
+		local cvtValueFunc = "forDBL_"..c
+		local cvtValue = spec[cvtValueFunc]
+		if s ~= nil then
+			if tonumber(s) ~= nil then
+				returnValue = tostring(cvtValue) == tostring(s)
+			else
+				local states = string.split(tostring(s), " ")
+				if states ~= nil and type(states) == "table" then
+					for _, state in pairs(states) do
+						returnValue = returnValue or (tostring(cvtValue) == tostring(state))
+					end
+				end
+			end
+		else 
+			returnValue = cvtValue or false
+		end
+	end
+	dbgprint("getDashboardLiveCVT : returnValue: "..tostring(returnValue), 4)
+	return returnValue
+end
 	
 function DashboardLive:onUpdate(dt)
 	local spec = self.spec_DashboardLive
+	local dspec = self.spec_dashboard
 	local mspec = self.spec_motorized
 	
 	if self:getIsActiveForInput(true) then
@@ -2900,6 +3333,13 @@ function DashboardLive:onUpdate(dt)
 		mspec.lastFuelUsage = spec.lastFuelUsage
 		mspec.lastDefUsage = spec.lastDefUsage
 		mspec.lastAirUsage = spec.lastAirUsage
+	end
+	
+	-- switch light/dark mode
+	if spec.isDirty then
+		self:updateDashboards(dspec.dashboards, dt, true)
+		spec.isDirty = false
+		spec.darkModeLast = spec.darkMode
 	end
 end
 
